@@ -1,7 +1,7 @@
 # structures-fingerprints
 Prepare Python script to calculate fingerprints on crystal structures and convert them into 2D space with t-SNE.
-Access the app here: https://fingerprints.streamlit.app/
-See tutorial at (YouTube)[https://www.youtube.com/watch?v=717XxoA-XPo].
+Access the app here: https://fingerprints.streamlit.app/  
+See tutorial at [YouTube](https://www.youtube.com/watch?v=717XxoA-XPo).
 
 
 
