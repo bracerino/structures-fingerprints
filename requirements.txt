@@ -1,0 +1,9 @@
+streamlit
+dscribe
+numpy
+matplotlib
+scikit-learn
+ase
+dscribe
+pandas
+plotly
