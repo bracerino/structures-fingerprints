@@ -11,3 +11,9 @@ Active Python virtual environment and install into it all necessary packages:
 1) python3 -m venv finger_env
 2) source finger_env/bin/activate
 3) pip install dscribe numpy matplotlib scikit-learn ase dscribe pandas
+
+![3](images/3.png)
+
+![2](images/2.png)
+
+![1](images/1.png)
