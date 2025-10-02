@@ -770,6 +770,7 @@ with main_tab3:
 
     **Access the app here:** [https://fingerprints.streamlit.app/](https://fingerprints.streamlit.app/)  
     **See tutorial at:** [YouTube](https://www.youtube.com/)
+    **💻 GitHub Repository:** [https://github.com/bracerino/structures-fingerprints](https://github.com/bracerino/structures-fingerprints)
     """)
 
     st.markdown("---")
