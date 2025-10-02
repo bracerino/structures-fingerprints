@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+from sklearn.cluster import KMeans
 st.set_page_config(page_title="Structure Fingerprint Analysis Generator", layout="wide")
 
 st.title("Structure Fingerprint Analysis - Script Generator")
@@ -84,7 +85,7 @@ css = '''
 
 st.markdown(css, unsafe_allow_html=True)
 
-main_tab1, main_tab2 = st.tabs(["Generate Script", "Interactive Visualization: 2D t-SNE Map"])
+main_tab1, main_tab2, main_tab3 = st.tabs(["Generate Script", "Interactive Visualization: 2D t-SNE Map", "Getting Started Guide"])
 
 with main_tab1:
     st.success("""
@@ -544,10 +545,8 @@ print("="*60)
 
         with st.expander("View Generated Script", expanded=True):
             st.code(script_content, language="python")
-
 with main_tab2:
     st.header("Interactive t-SNE Visualization - Upload CSV file from the generated script")
-
 
     with st.expander("ℹ️ Expected File Format"):
         st.markdown("""
@@ -579,8 +578,6 @@ with main_tab2:
     if tsne_file is not None:
         df = pd.read_csv(tsne_file)
 
-
-
         viz_col1, viz_col2 = st.columns([2, 1])
 
         with viz_col2:
@@ -591,34 +588,89 @@ with main_tab2:
             show_labels = st.checkbox("Show structure labels", value=False)
 
             if 'energy' in df.columns and df['energy'].notna().any():
-                color_by_energy = st.checkbox("Color by energy", value=True)
-                if color_by_energy:
-                    plot_colormap = st.selectbox(
-                        "Colormap",
-                        ["Viridis", "Plasma", "Inferno", "Magma", "Cividis", "Turbo", "RdYlBu_r", "Spectral_r"],
-                        index=0
+                st.markdown("---")
+                st.subheader("Clustering Options")
+
+                perform_clustering = st.checkbox("Perform k-means clustering", value=False)
+
+                if perform_clustering:
+                    n_clusters = st.slider("Number of clusters", min_value=2, max_value=20, value=3, step=1)
+
+                    clustering_feature = st.radio(
+                        "Cluster based on:",
+                        ["Energy values", "t-SNE coordinates"]
                     )
 
-                    st.markdown("**Color Scale Range**")
-                    energy_min = float(df['energy'].min())
-                    energy_max = float(df['energy'].max())
-
-                    use_custom_range = st.checkbox("Use custom range", value=False)
-
-                    if use_custom_range:
-                        color_min = st.number_input("Minimum", value=energy_min, step=0.01)
-                        color_max = st.number_input("Maximum", value=energy_max, step=0.01)
+                    if clustering_feature == "Energy values":
+                        energy_data = df[['energy']].dropna()
+                        valid_indices = df['energy'].notna()
+                        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+                        clusters = np.full(len(df), -1)
+                        clusters[valid_indices] = kmeans.fit_predict(energy_data)
+                        df['cluster'] = clusters
                     else:
-                        color_min = energy_min
-                        color_max = energy_max
+                        tsne_coords = df[['x', 'y']].values
+                        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+                        df['cluster'] = kmeans.fit_predict(tsne_coords)
+
+                    color_by_cluster = st.checkbox("Color by cluster groups", value=True)
+                else:
+                    color_by_cluster = False
+
+                st.markdown("---")
+
+                if not perform_clustering or not color_by_cluster:
+                    color_by_energy = st.checkbox("Color by energy", value=True)
+                    if color_by_energy:
+                        plot_colormap = st.selectbox(
+                            "Colormap",
+                            ["Viridis", "Plasma", "Inferno", "Magma", "Cividis", "Turbo", "RdYlBu_r", "Spectral_r"],
+                            index=0
+                        )
+
+                        st.markdown("**Color Scale Range**")
+                        energy_min = float(df['energy'].min())
+                        energy_max = float(df['energy'].max())
+
+                        use_custom_range = st.checkbox("Use custom range", value=False)
+
+                        if use_custom_range:
+                            color_min = st.number_input("Minimum", value=energy_min, step=0.01)
+                            color_max = st.number_input("Maximum", value=energy_max, step=0.01)
+                        else:
+                            color_min = energy_min
+                            color_max = energy_max
+                else:
+                    color_by_energy = False
             else:
                 color_by_energy = False
+                perform_clustering = False
+                color_by_cluster = False
                 st.info("No energy data found in file")
 
         with viz_col1:
             st.subheader("t-SNE Scatter Plot")
 
-            if color_by_energy and 'energy' in df.columns:
+            if perform_clustering and color_by_cluster:
+                df['cluster_label'] = df['cluster'].astype(str)
+                df.loc[df['cluster'] == -1, 'cluster_label'] = 'No data'
+
+                fig = px.scatter(
+                    df,
+                    x='x',
+                    y='y',
+                    color='cluster_label',
+                    hover_data=['structure', 'energy', 'cluster'],
+                    labels={'x': 't-SNE Component 1', 'y': 't-SNE Component 2', 'cluster_label': 'Cluster'},
+                    title='Interactive t-SNE Visualization - K-Means Clustering',
+                    width=800,
+                    height=600,
+                    color_discrete_sequence=px.colors.qualitative.Set3
+                )
+
+                fig.update_traces(marker=dict(size=point_size, line=dict(width=1, color='DarkSlateGrey')))
+
+            elif color_by_energy and 'energy' in df.columns:
                 fig = px.scatter(
                     df,
                     x='x',
@@ -697,8 +749,10 @@ with main_tab2:
             )
 
             st.plotly_chart(fig, use_container_width=True)
+
         st.subheader("Data Preview")
         st.dataframe(df.head(), use_container_width=True)
+
         st.subheader("Export Options")
 
         html_str = fig.to_html()
@@ -708,3 +762,60 @@ with main_tab2:
             file_name="tsne_interactive.html",
             mime="text/html"
         )
+with main_tab3:
+    st.header("📚 Getting Started Guide")
+
+    st.markdown("""
+    Prepare Python script to calculate fingerprints on crystal structures and convert them into 2D space with t-SNE. Perform k-means clustering on the t-SNE or the structures energies. 
+
+    **Access the app here:** [https://fingerprints.streamlit.app/](https://fingerprints.streamlit.app/)  
+    **See tutorial at:** [YouTube](https://www.youtube.com/)
+    """)
+
+    st.markdown("---")
+
+    st.subheader("🔧 Install Prerequisites")
+
+    st.markdown("First, update your system and install required build tools:")
+
+    st.code("""sudo apt update
+sudo apt install build-essential python3.12-dev python3-venv""", language="bash")
+
+    st.markdown("---")
+
+    st.subheader("🐍 Set Up Python Virtual Environment")
+
+    st.markdown("Follow these steps to create and activate your virtual environment with all necessary packages:")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("**Step 1: Create Environment**")
+        st.code("python3 -m venv finger_env", language="bash")
+        st.caption("Creates a new virtual environment named 'finger_env'")
+
+    with col2:
+        st.markdown("**Step 2: Activate Environment**")
+        st.code("source finger_env/bin/activate", language="bash")
+        st.caption("Activates the virtual environment")
+
+    with col3:
+        st.markdown("**Step 3: Install Packages**")
+        st.code("pip install dscribe numpy matplotlib scikit-learn ase pandas", language="bash")
+        st.caption("Installs all required Python packages")
+
+    st.markdown("---")
+
+    st.subheader("▶️ Running the Generated Script")
+
+    st.markdown("""
+    After generating your script from the **Generate Script** tab:
+
+    1. Download the generated Python script
+    2. Create a folder named `structures` in the same directory
+    3. Place your structure files (VASP, CIF, XYZ, etc.) in the `structures` folder
+    4. Optionally, create an `energies.txt` file with structure names and energies in the some folder as the Python script
+    5. Run the script:
+    """)
+
+    st.code("python fingerprint_analysis_YYYYMMDD_HHMMSS.py", language="bash")
