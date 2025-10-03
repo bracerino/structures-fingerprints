@@ -1138,7 +1138,7 @@ with tab_pca:
                     n_components = st.slider(
                         "Number of components to compute",
                         min_value=2,
-                        max_value=20,
+                        max_value=800,
                         value=10,
                         step=1
                     )
