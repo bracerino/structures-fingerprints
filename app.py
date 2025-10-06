@@ -1778,7 +1778,7 @@ if __name__ == "__main__":
                 type="primary"
             )
 
-            with st.expander("View Generated Script", expanded=False):
+            with st.expander("View Generated Script", expanded=True):
                 st.code(script_content, language="python")
 
     with neighbor_tabs[1]:
@@ -1831,6 +1831,44 @@ if __name__ == "__main__":
                 )
 
                 marker_size = st.slider("Marker size", 2, 12, 6, key='nn_marker')
+
+                # Add after marker_size slider
+                st.markdown("---")
+                st.markdown("**Y-Axis Options**")
+
+                y_axis_mode = st.radio(
+                    "Y-axis variable:",
+                    ["Intensity (# pairs)", "Energy (eV)"],
+                    index=0,
+                    help="Choose what to plot on the y-axis"
+                )
+
+                st.markdown("---")
+                st.markdown("**Energy Filter**")
+
+                if 'energy' in df_nn_filtered.columns and df_nn_filtered['energy'].notna().any():
+                    energy_min_filter = float(df_nn_filtered['energy'].min())
+                    energy_max_filter = float(df_nn_filtered['energy'].max())
+
+                    enable_energy_filter = st.checkbox("Enable energy range filter", value=False)
+
+                    if enable_energy_filter:
+                        energy_range = st.slider(
+                            "Select energy range (eV)",
+                            min_value=energy_min_filter,
+                            max_value=energy_max_filter,
+                            value=(energy_min_filter, energy_max_filter),
+                            step=(energy_max_filter - energy_min_filter) / 100,
+                            format="%.4f"
+                        )
+
+                        # Apply filter
+                        df_nn_filtered = df_nn_filtered[
+                            (df_nn_filtered['energy'] >= energy_range[0]) &
+                            (df_nn_filtered['energy'] <= energy_range[1])
+                            ]
+
+                        st.info(f"Showing {df_nn_filtered['filename'].nunique()} structures in selected energy range")
 
                 # Clustering and coloring options
                 st.markdown("---")
@@ -1940,7 +1978,10 @@ if __name__ == "__main__":
 
                             for _, point in structure_data.iterrows():
                                 all_x.append(point['distance'])
-                                all_y.append(point['intensity'])
+                                if y_axis_mode == "Energy (eV)":
+                                    all_y.append(energy if energy is not None else np.nan)
+                                else:
+                                    all_y.append(point['intensity'])
 
                                 if is_min_energy:
                                     all_colors.append(None)
@@ -1950,7 +1991,12 @@ if __name__ == "__main__":
                                     if color_by_cluster:
                                         all_colors.append(cluster_label)
                                     else:
-                                        all_colors.append(energy if energy is not None else None)
+                                        if y_axis_mode == "Energy (eV)":
+                                            all_colors.append(
+                                                point['intensity'])
+                                        else:
+                                            all_colors.append(
+                                                energy if energy is not None else None)
                                     all_symbols.append('circle')
                                     all_sizes.append(marker_size)
 
@@ -1961,6 +2007,8 @@ if __name__ == "__main__":
                                 hover_text += f'Intensity: {point["intensity"]}<br>'
                                 if energy is not None:
                                     hover_text += f'Energy: {energy:.4f} eV<br>'
+                                if y_axis_mode == "Energy (eV)":
+                                    hover_text += f'<b>Y-value: {energy:.4f} eV</b><br>'
                                 if color_by_cluster and cluster_label is not None and cluster_label >= 0:
                                     hover_text += f'Cluster: {int(cluster_label) + 1}<br>'
                                 if is_min_energy:
@@ -2066,6 +2114,15 @@ if __name__ == "__main__":
                                         row=row, col=col
                                     )
                             elif color_by_energy_nn and len(valid_colors) > 0:
+                                if y_axis_mode == "Energy (eV)":
+                                    colorbar_title = "Intensity (# pairs)"
+                                    color_min = min([c for c in regular_colors if c is not None])
+                                    color_max = max([c for c in regular_colors if c is not None])
+                                else:
+                                    colorbar_title = "Energy (eV)"
+                                    color_min = global_min_energy
+                                    color_max = global_max_energy
+
                                 fig.add_trace(
                                     go.Scatter(
                                         x=regular_x,
@@ -2076,10 +2133,10 @@ if __name__ == "__main__":
                                             color=regular_colors,
                                             colorscale=nn_colormap.lower(),
                                             showscale=(idx == 0),
-                                            cmin=global_min_energy,
-                                            cmax=global_max_energy,
+                                            cmin=color_min,
+                                            cmax=color_max,
                                             colorbar=dict(
-                                                title="Energy (eV)",
+                                                title=colorbar_title,
                                                 x=1.02,
                                                 title_font=dict(size=16),
                                                 tickfont=dict(size=14)
@@ -2109,7 +2166,8 @@ if __name__ == "__main__":
                                 )
 
                         fig.update_xaxes(title_text="Distance (Å)", row=row, col=col, title_font=dict(size=14))
-                        fig.update_yaxes(title_text="Intensity (# pairs)", row=row, col=col, title_font=dict(size=14))
+                        y_label = "Energy (eV)" if y_axis_mode == "Energy (eV)" else "Intensity (# pairs)"
+                        fig.update_yaxes(title_text=y_label, row=row, col=col, title_font=dict(size=14))
 
                     neighbor_order_text = f"{selected_neighbor_order}{'st' if selected_neighbor_order == 1 else 'nd'} Nearest Neighbor"
                     fig.update_layout(
@@ -2178,100 +2236,13 @@ if __name__ == "__main__":
                 if len(count_cols) > 0 and len(df_composition) > 1:
 
                     corr_tabs = st.tabs([
+                        "🗺️ Combined Correlation Heatmap",
                         "📊 Element Count Correlations",
                         "📏 Distance Correlations",
-                        "🗺️ Combined Correlation Heatmap"
+
                     ])
 
                     with corr_tabs[0]:
-                        st.subheader(f"Element Count vs Energy Correlation")
-
-                        count_correlations = {}
-                        for col in count_cols:
-                            if df_composition[col].std() > 0:
-                                elem = col.replace('_count', '')
-                                corr = df_composition['energy'].corr(df_composition[col])
-                                count_correlations[elem] = corr
-
-                        if count_correlations:
-                            corr_count_df = pd.DataFrame([
-                                {
-                                    'Element': elem,
-                                    'Correlation': f'{corr:.4f}',
-                                    'Interpretation': (
-                                        'Strong stabilizing' if corr < -0.5 else
-                                        'Stabilizing' if corr < -0.2 else
-                                        'Destabilizing' if corr > 0.2 else
-                                        'Strong destabilizing' if corr > 0.5 else
-                                        'Minimal effect'
-                                    )
-                                }
-                                for elem, corr in
-                                sorted(count_correlations.items(), key=lambda x: abs(x[1]), reverse=True)
-                            ])
-
-                            st.dataframe(
-                                corr_count_df,
-                                use_container_width=True,
-                                hide_index=True,
-                                column_config={
-                                    "Element": st.column_config.TextColumn(width="medium"),
-                                    "Correlation": st.column_config.TextColumn(width="medium"),
-                                    "Interpretation": st.column_config.TextColumn(width="large")
-                                }
-                            )
-
-                            st.caption(f"Higher count = more neighbors of this element around {reference_elem}")
-                            st.caption("Positive correlation: more neighbors → higher energy (less stable)")
-                            st.caption("Negative correlation: more neighbors → lower energy (more stable)")
-
-                    with corr_tabs[1]:
-                        st.subheader(f"Average Distance vs Energy Correlation")
-
-                        distance_correlations = {}
-                        for col in distance_cols:
-                            if df_composition[col].std() > 0 and (df_composition[col] > 0).sum() > 1:
-                                elem = col.replace('_distance', '')
-                                valid_mask = df_composition[col] > 0
-                                if valid_mask.sum() > 1:
-                                    corr = df_composition.loc[valid_mask, 'energy'].corr(
-                                        df_composition.loc[valid_mask, col])
-                                    distance_correlations[elem] = corr
-
-                        if distance_correlations:
-                            corr_dist_df = pd.DataFrame([
-                                {
-                                    'Element': elem,
-                                    'Correlation': f'{corr:.4f}',
-                                    'Interpretation': (
-                                        'Closer = more stable' if corr > 0.2 else
-                                        'Further = more stable' if corr < -0.2 else
-                                        'Distance-independent'
-                                    )
-                                }
-                                for elem, corr in
-                                sorted(distance_correlations.items(), key=lambda x: abs(x[1]), reverse=True)
-                            ])
-
-                            st.dataframe(
-                                corr_dist_df,
-                                use_container_width=True,
-                                hide_index=True,
-                                column_config={
-                                    "Element": st.column_config.TextColumn(width="medium"),
-                                    "Correlation": st.column_config.TextColumn(width="medium"),
-                                    "Interpretation": st.column_config.TextColumn(width="large")
-                                }
-                            )
-
-                            st.caption(f"Average distance between {reference_elem} and neighboring element")
-                            st.caption("Positive correlation: larger distance → higher energy (prefers closer)")
-                            st.caption("Negative correlation: larger distance → lower energy (prefers further)")
-                        else:
-                            st.warning("Not enough distance variation to calculate meaningful correlations.")
-
-
-                    with corr_tabs[2]:
                         st.subheader("Energy Correlation Heatmap")
 
                         energy_correlations = []
@@ -2419,6 +2390,96 @@ if __name__ == "__main__":
                                 """)
                         else:
                             st.warning("No valid correlations to display.")
+
+                    with corr_tabs[1]:
+                        st.subheader(f"Element Count vs Energy Correlation")
+
+                        count_correlations = {}
+                        for col in count_cols:
+                            if df_composition[col].std() > 0:
+                                elem = col.replace('_count', '')
+                                corr = df_composition['energy'].corr(df_composition[col])
+                                count_correlations[elem] = corr
+
+                        if count_correlations:
+                            corr_count_df = pd.DataFrame([
+                                {
+                                    'Element': elem,
+                                    'Correlation': f'{corr:.4f}',
+                                    'Interpretation': (
+                                        'Strong stabilizing' if corr < -0.5 else
+                                        'Stabilizing' if corr < -0.2 else
+                                        'Destabilizing' if corr > 0.2 else
+                                        'Strong destabilizing' if corr > 0.5 else
+                                        'Minimal effect'
+                                    )
+                                }
+                                for elem, corr in
+                                sorted(count_correlations.items(), key=lambda x: abs(x[1]), reverse=True)
+                            ])
+
+                            st.dataframe(
+                                corr_count_df,
+                                use_container_width=True,
+                                hide_index=True,
+                                column_config={
+                                    "Element": st.column_config.TextColumn(width="medium"),
+                                    "Correlation": st.column_config.TextColumn(width="medium"),
+                                    "Interpretation": st.column_config.TextColumn(width="large")
+                                }
+                            )
+
+                            st.caption(f"Higher count = more neighbors of this element around {reference_elem}")
+                            st.caption("Positive correlation: more neighbors → higher energy (less stable)")
+                            st.caption("Negative correlation: more neighbors → lower energy (more stable)")
+
+                    with corr_tabs[2]:
+                        st.subheader(f"Average Distance vs Energy Correlation")
+
+                        distance_correlations = {}
+                        for col in distance_cols:
+                            if df_composition[col].std() > 0 and (df_composition[col] > 0).sum() > 1:
+                                elem = col.replace('_distance', '')
+                                valid_mask = df_composition[col] > 0
+                                if valid_mask.sum() > 1:
+                                    corr = df_composition.loc[valid_mask, 'energy'].corr(
+                                        df_composition.loc[valid_mask, col])
+                                    distance_correlations[elem] = corr
+
+                        if distance_correlations:
+                            corr_dist_df = pd.DataFrame([
+                                {
+                                    'Element': elem,
+                                    'Correlation': f'{corr:.4f}',
+                                    'Interpretation': (
+                                        'Closer = more stable' if corr > 0.2 else
+                                        'Further = more stable' if corr < -0.2 else
+                                        'Distance-independent'
+                                    )
+                                }
+                                for elem, corr in
+                                sorted(distance_correlations.items(), key=lambda x: abs(x[1]), reverse=True)
+                            ])
+
+                            st.dataframe(
+                                corr_dist_df,
+                                use_container_width=True,
+                                hide_index=True,
+                                column_config={
+                                    "Element": st.column_config.TextColumn(width="medium"),
+                                    "Correlation": st.column_config.TextColumn(width="medium"),
+                                    "Interpretation": st.column_config.TextColumn(width="large")
+                                }
+                            )
+
+                            st.caption(f"Average distance between {reference_elem} and neighboring element")
+                            st.caption("Positive correlation: larger distance → higher energy (prefers closer)")
+                            st.caption("Negative correlation: larger distance → lower energy (prefers further)")
+                        else:
+                            st.warning("Not enough distance variation to calculate meaningful correlations.")
+
+
+
 
 
                     st.markdown("---")
