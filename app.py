@@ -11,6 +11,14 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
 from sklearn.cluster import KMeans
+from script_generators import  generate_pca_clustering_script
+
+try:
+    import umap
+    UMAP_AVAILABLE = True
+except ImportError:
+    UMAP_AVAILABLE = False
+
 st.set_page_config(page_title="Structure Fingerprint Analysis Generator", layout="wide")
 
 st.title("Structure Fingerprint Analysis - Script Generator")
@@ -309,14 +317,17 @@ except Exception as e:
         else:
             energy_code = "\nenergies = None\n"
 
+
         save_fingerprints_code = ""
         if save_fingerprints:
+            npz_filename = fingerprints_filename.replace('.npy', '.npz')
             save_fingerprints_code = f"""
-print("Saving fingerprints...")
-np.save("{fingerprints_filename}", np.array(fingerprints))
-print(f"  Fingerprints saved to {fingerprints_filename}")
+print("Saving fingerprints and structure names...")
+np.savez("{npz_filename}", 
+         fingerprints=np.array(fingerprints),
+         structure_names=np.array(structure_names))
+print(f"  Fingerprints and structure names saved to {npz_filename}")
 """
-
         save_tsne_code = ""
         if save_tsne_coords:
             save_tsne_code = f"""
@@ -785,39 +796,319 @@ with tab_pca:
         """)
 
     fingerprint_tabs = st.tabs([
+        "📊 PCA Analysis",
+        "🔧 Generate Analysis Script",
         "🧮 Compute t-SNE from Fingerprints",
-        "📊 PCA Analysis"
     ])
+    with fingerprint_tabs[1]:
+        st.subheader("🔧 Generate Automated Clustering Script")
 
-    with fingerprint_tabs[0]:
+        st.markdown("""
+        Generate a Python script that will:
+        - Load fingerprints from `.npz` file
+        - Optionally apply PCA dimensionality reduction
+        - Optionally create 2D visualization (t-SNE/UMAP)
+        - Perform k-means clustering
+        - Extract structures closest to centroids
+        - Organize results into folders
+        """)
+
+        st.markdown("---")
+
+        script_col1, script_col2 = st.columns(2)
+
+        with script_col1:
+            st.markdown("### Feature Reduction Configuration")
+
+            script_use_pca = st.checkbox(
+                "Apply PCA dimensionality reduction",
+                value=True,
+                key='script_use_pca',
+                help="If disabled, clustering will be performed on original fingerprints"
+            )
+
+            if script_use_pca:
+                script_variance_threshold = st.slider(
+                    "Target cumulative variance (%)",
+                    min_value=80,
+                    max_value=99,
+                    value=95,
+                    step=1,
+                    key='script_var_threshold',
+                    help="PCA will use enough components to explain this % of variance"
+                )
+            else:
+                st.info("ℹ️ Clustering will use all original fingerprint features")
+
+            script_standardize = st.checkbox(
+                "Apply standardization",
+                value=True,
+                key='script_standardize',
+                help="Standardize features to mean=0, std=1"
+            )
+
+            st.markdown("---")
+            st.markdown("### 2D Visualization (Optional)")
+
+            script_use_2d = st.checkbox(
+                "Create 2D visualization plots",
+                value=True,
+                key='script_use_2d',
+                help="Generate t-SNE or UMAP 2D plots (optional, does not affect clustering)"
+            )
+
+            if script_use_2d:
+                script_reduction_methods = ["t-SNE"]
+                if UMAP_AVAILABLE:
+                    script_reduction_methods.append("UMAP")
+
+                script_reduction_method = st.selectbox(
+                    "2D visualization method",
+                    options=script_reduction_methods,
+                    index=1,
+                    key='script_reduction_method'
+                )
+
+                if script_reduction_method == "t-SNE":
+                    st.markdown("**t-SNE Parameters**")
+                    script_tsne_perp = st.number_input("Perplexity", min_value=5, max_value=50, value=30,
+                                                       key='script_tsne_perp')
+                    script_tsne_iter = st.number_input("Max iterations", min_value=250, max_value=5000,
+                                                       value=1000, step=250, key='script_tsne_iter')
+                    script_tsne_lr = st.number_input("Learning rate", min_value=10.0, max_value=1000.0,
+                                                     value=200.0, step=50.0, key='script_tsne_lr')
+                else:
+                    st.markdown("**UMAP Parameters**")
+                    script_umap_neighbors = st.number_input("N neighbors", min_value=2, max_value=200, value=15,
+                                                            step=5, key='script_umap_neighbors')
+                    script_umap_min_dist = st.number_input("Min distance", min_value=0.0, max_value=1.0,
+                                                           value=0.1, step=0.05, key='script_umap_min_dist')
+            else:
+                st.info("ℹ️ No 2D plots will be generated (faster execution)")
+
+        with script_col2:
+            st.markdown("### K-Means Clustering Configuration")
+
+            st.info(
+                f"Clustering will be performed on: **{'PCA-reduced features' if script_use_pca else 'Original fingerprints'}**")
+
+            st.markdown("**Number of Clusters**")
+
+            script_cluster_mode = st.radio(
+                "Cluster configuration:",
+                ["Single value", "Range with step"],
+                index=0,
+                key='script_cluster_mode'
+            )
+
+            if script_cluster_mode == "Single value":
+                script_n_clusters = st.number_input(
+                    "Number of clusters",
+                    min_value=2,
+                    max_value=20,
+                    value=3,
+                    step=1,
+                    key='script_n_clusters_single'
+                )
+                cluster_values = [script_n_clusters]
+            else:
+                cluster_col1, cluster_col2, cluster_col3 = st.columns(3)
+                with cluster_col1:
+                    script_cluster_min = st.number_input(
+                        "Min clusters",
+                        min_value=2,
+                        max_value=19998,
+                        value=2,
+                        step=1,
+                        key='script_cluster_min'
+                    )
+                with cluster_col2:
+                    script_cluster_max = st.number_input(
+                        "Max clusters",
+                        min_value=2,
+                        max_value=20000,
+                        value=6,
+                        step=1,
+                        key='script_cluster_max'
+                    )
+                with cluster_col3:
+                    script_cluster_step = st.number_input(
+                        "Step",
+                        min_value=1,
+                        max_value=10000,
+                        value=1,
+                        step=1,
+                        key='script_cluster_step'
+                    )
+
+                cluster_values = list(range(script_cluster_min, script_cluster_max + 1, script_cluster_step))
+                st.info(f"Will test: {cluster_values} clusters")
+
+            st.markdown("---")
+            st.markdown("### File Paths")
+
+            script_fingerprints_file = st.text_input(
+                "Fingerprints file (.npz)",
+                value="fingerprints.npz",
+                key='script_fp_file',
+                help="Path to the .npz file containing fingerprints and structure names"
+            )
+
+            script_structures_folder = st.text_input(
+                "Structures folder",
+                value="structures",
+                key='script_struct_folder',
+                help="Folder containing the original structure files"
+            )
+
+            script_output_base = st.text_input(
+                "Output base folder",
+                value="clustering_results",
+                key='script_output_base',
+                help="Base folder for all results"
+            )
+
+        st.markdown("---")
+
+        if st.button("🔧 Generate Analysis Script", type="primary", key='gen_pca_script'):
+            # Prepare configuration dictionary
+            config = {
+                'use_pca': script_use_pca,
+                'standardize': script_standardize,
+                'use_2d_visualization': script_use_2d,
+                'cluster_values': cluster_values,
+                'fingerprints_file': script_fingerprints_file,
+                'structures_folder': script_structures_folder,
+                'output_base': script_output_base
+            }
+
+            if script_use_pca:
+                config['variance_threshold'] = script_variance_threshold
+
+            if script_use_2d:
+                config['reduction_method'] = script_reduction_method
+                if script_reduction_method == "t-SNE":
+                    config['tsne_perplexity'] = script_tsne_perp
+                    config['tsne_iterations'] = script_tsne_iter
+                    config['tsne_learning_rate'] = script_tsne_lr
+                else:
+                    config['umap_neighbors'] = script_umap_neighbors
+                    config['umap_min_dist'] = script_umap_min_dist
+
+            # Generate the script
+            script_content = generate_pca_clustering_script(config)
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            script_filename = f"clustering_analysis_{timestamp}.py"
+
+            st.success("✅ Script generated successfully!")
+
+            st.download_button(
+                label="📥 Download Python Script",
+                data=script_content,
+                file_name=script_filename,
+                mime="text/x-python",
+                type="primary"
+            )
+
+            with st.expander("📄 View Generated Script", expanded=True):
+                st.code(script_content, language="python")
+
+            st.markdown("---")
+            st.markdown("### 📋 Usage Instructions")
+
+            required_packages = "numpy pandas matplotlib scikit-learn"
+            if script_use_2d and script_reduction_method == "UMAP":
+                required_packages += " umap-learn"
+
+            workflow_steps = []
+            workflow_steps.append(f"- Load fingerprints from `{script_fingerprints_file}`")
+            if script_use_pca:
+                workflow_steps.append(f"- Apply PCA to achieve **{script_variance_threshold}% variance**")
+            else:
+                workflow_steps.append("- Use **original fingerprints** (no PCA)")
+            if script_use_2d:
+                workflow_steps.append(f"- Create 2D visualization using **{script_reduction_method}**")
+            workflow_steps.append(f"- Perform k-means clustering for: **{cluster_values}**")
+            workflow_steps.append("- Extract and copy centroid structures")
+
+            st.markdown(f"""
+            **Before running the script:**
+
+            1. Ensure you have the required packages:
+    ```bash
+            pip install {required_packages}
+    ```
+
+            2. Make sure you have:
+               - `{script_fingerprints_file}` in the same directory
+               - `{script_structures_folder}/` folder with your structure files
+
+            3. Run the script:
+    ```bash
+            python {script_filename}
+    ```
+
+            **What the script will do:**
+
+            {chr(10).join(workflow_steps)}
+
+            **Output structure:**
+    ```
+            {script_output_base}/
+            ├── coordinates.csv
+            ├── k{cluster_values[0]}_clusters/
+            │   ├── cluster_assignments_k{cluster_values[0]}.csv
+            │   ├── centroid_structures_k{cluster_values[0]}.csv
+            │   ├── clustering_info_k{cluster_values[0]}.json
+            {'│   ├── clustering_plot_k' + str(cluster_values[0]) + '.png' if script_use_2d else ''}
+            │   └── centroid_structures/
+            │       ├── cluster01_structure.vasp
+            │       ├── cluster02_structure.vasp
+            │       └── ...
+            {'├── k' + str(cluster_values[1]) + '_clusters/' if len(cluster_values) > 1 else ''}
+            {'│   └── ...' if len(cluster_values) > 1 else ''}
+    ```
+            """)
+    with fingerprint_tabs[2]:
         st.subheader("Compute t-SNE Directly from Fingerprints")
 
         st.info("Upload your fingerprints.npy file to automatically compute t-SNE and visualize the results")
 
-        fingerprint_file_tsne = st.file_uploader("Upload fingerprints file (.npy)", type=['npy'],
+        fingerprint_file_tsne = st.file_uploader("Upload fingerprints file (.npy or .npz)",
+                                                 type=['npy', 'npz'],
                                                  key='tsne_fingerprints')
 
         if fingerprint_file_tsne is not None:
             from sklearn.manifold import TSNE
 
-            fingerprints_data = np.load(fingerprint_file_tsne)
+            if fingerprint_file_tsne.name.endswith('.npz'):
+                data = np.load(fingerprint_file_tsne)
+                fingerprints_data = data['fingerprints']
+                structure_names_tsne = data['structure_names'].tolist() if 'structure_names' in data else None
+            else:
+                fingerprints_data = np.load(fingerprint_file_tsne)
+                structure_names_tsne = None
 
             st.success(
                 f"✅ Loaded fingerprints: {fingerprints_data.shape[0]} structures, {fingerprints_data.shape[1]} features")
 
-            structure_names_tsne = None
             energies_tsne = None
 
+            if structure_names_tsne is not None:
+                st.success(f"✅ Structure names loaded from .npz file: {len(structure_names_tsne)} structures")
+
             coord_file_tsne = st.file_uploader(
-                "Upload CSV with structure names and energies (optional)",
+                "Upload CSV with energies (optional - names loaded from .npz if available)",
                 type=['csv'],
                 key='tsne_csv_upload'
             )
 
             if coord_file_tsne is not None:
                 coord_df_tsne = pd.read_csv(coord_file_tsne)
-                if 'structure' in coord_df_tsne.columns:
+                if structure_names_tsne is None and 'structure' in coord_df_tsne.columns:
                     structure_names_tsne = coord_df_tsne['structure'].tolist()
+
                 if 'energy' in coord_df_tsne.columns:
                     energies_tsne = coord_df_tsne['energy'].values
 
@@ -1093,40 +1384,700 @@ with tab_pca:
                         mime="text/html"
                     )
 
-    with fingerprint_tabs[1]:
+    with fingerprint_tabs[0]:
         st.subheader("Principal Component Analysis")
 
-        fingerprint_file = st.file_uploader("Upload fingerprints file (.npy)", type=['npy'], key='pca_fingerprints')
+        fingerprint_file = st.file_uploader("Upload fingerprints file (.npy or .npz)",
+                                            type=['npy', 'npz'],
+                                            key='pca_fingerprints')
 
         if fingerprint_file is not None:
-            fingerprints = np.load(fingerprint_file)
+            if fingerprint_file.name.endswith('.npz'):
+                data = np.load(fingerprint_file)
+                fingerprints = data['fingerprints']
+                structure_names = data['structure_names'].tolist() if 'structure_names' in data else None
+            else:
+                fingerprints = np.load(fingerprint_file)
+                structure_names = None
 
             st.success(f"✅ Loaded fingerprints: {fingerprints.shape[0]} structures, {fingerprints.shape[1]} features")
 
-            structure_names = None
+            if structure_names is not None:
+                st.success(f"✅ Structure names loaded from .npz file: {len(structure_names)} structures")
+
             energies = None
 
             coord_file = st.file_uploader(
-                "Upload t-SNE coordinates CSV (optional - for structure names and energies)",
-                type=['csv'],
-                key='pca_csv'
+                "Upload CSV/TXT with energies (optional - names loaded from .npz if available)",
+                type=['csv', 'txt', 'dat'],
+                key='pca_csv',
+                help="Supports comma, tab, semicolon, space, or pipe separated files"
             )
 
             if coord_file is not None:
-                coord_df = pd.read_csv(coord_file)
-                if 'structure' in coord_df.columns:
-                    structure_names = coord_df['structure'].tolist()
-                if 'energy' in coord_df.columns:
-                    energies = coord_df['energy'].values
+                try:
+                    coord_file.seek(0)
+                    first_line = coord_file.readline().decode('utf-8').strip()
+                    coord_file.seek(0)
+
+                    has_header = first_line.startswith('#')
+
+                    if has_header:
+                        st.info("📋 Header detected (line starting with #)")
+                    else:
+                        st.info("📋 No header detected - treating first line as data")
+
+                    separators = [',', '\t', ';', r'\s+', '|']
+                    separator_names = ['comma', 'tab', 'semicolon', 'whitespace', 'pipe']
+
+                    coord_df = None
+                    detected_sep = None
+
+                    for sep, name in zip(separators, separator_names):
+                        try:
+                            coord_file.seek(0)  # Reset file pointer
+
+                            if has_header:
+                                df_temp = pd.read_csv(coord_file, sep=sep, engine='python', comment='#')
+                            else:
+                                df_temp = pd.read_csv(coord_file, sep=sep, engine='python', header=None)
+
+                            if len(df_temp.columns) == 2:
+                                coord_df = df_temp
+                                detected_sep = name
+                                break
+                            elif len(df_temp.columns) > 1 and coord_df is None:
+                                coord_df = df_temp
+                                detected_sep = name
+                        except:
+                            continue
+
+                    if coord_df is None:
+                        raise ValueError("Could not parse file with any common separator")
+
+                    st.success(f"✅ File parsed successfully using **{detected_sep}** separator")
+                    st.info(f"📄 Loaded: {len(coord_df)} rows, columns: {list(coord_df.columns)}")
+
+                    if len(coord_df.columns) == 2:
+                        coord_df.columns = ['structure', 'energy']
+                        st.info("🔧 Assigned column names: 'structure' and 'energy'")
+                    elif 'structure' not in coord_df.columns or 'energy' not in coord_df.columns:
+                        st.warning("⚠️ Could not automatically assign column names")
+
+
+                    if 'structure' in coord_df.columns:
+                        coord_df['structure'] = coord_df['structure'].astype(str).str.strip()
+
+                    if 'energy' in coord_df.columns:
+                        coord_df['energy'] = pd.to_numeric(coord_df['energy'], errors='coerce')
+
+                    if structure_names is None and 'structure' in coord_df.columns:
+                        structure_names = coord_df['structure'].tolist()
+                        st.success(f"✅ Structure names loaded: {len(structure_names)} structures")
+
+                    if structure_names is not None:
+                        structure_names = [str(name).strip() for name in structure_names]
+
+                    if 'energy' in coord_df.columns:
+                        if 'structure' in coord_df.columns and structure_names is not None:
+                            energy_dict = dict(zip(coord_df['structure'], coord_df['energy']))
+                            energies = np.array([energy_dict.get(name, np.nan) for name in structure_names])
+
+                            matched_count = np.sum(~np.isnan(energies))
+
+                            if matched_count == len(structure_names):
+                                st.success(f"✅ Perfect match! All {matched_count} structures have energy data")
+                            else:
+                                st.success(
+                                    f"✅ Energies loaded: {matched_count}/{len(structure_names)} structures matched")
+
+                            if matched_count < len(structure_names):
+                                unmatched = [name for name, e in zip(structure_names, energies) if np.isnan(e)]
+                                st.warning(f"⚠️ {len(unmatched)} structures without energy data")
+
+
+                                with st.expander("🔍 Debug: Show mismatches and all structures"):
+                                    st.write(f"**Total structures in .npz:** {len(structure_names)}")
+                                    st.write(f"**Total structures in energy file:** {len(energy_dict)}")
+                                    st.write("")
+
+                                    st.write("**Unmatched structures from .npz:**")
+                                    for name in unmatched:
+                                        st.write(f"  - `{repr(name)}` (length: {len(name)})")
+
+                                    st.write("")
+                                    st.write("**All structures in .npz file:**")
+                                    for i, name in enumerate(structure_names[:10]):
+                                        matched_status = "✓" if name in energy_dict else "✗"
+                                        st.write(f"  {matched_status} `{name}`")
+                                    if len(structure_names) > 10:
+                                        st.write(f"  ... and {len(structure_names) - 10} more")
+
+                                    st.write("")
+                                    st.write("**All structures in energy file:**")
+                                    for i, name in enumerate(list(energy_dict.keys())[:10]):
+                                        st.write(f"  - `{name}`")
+                                    if len(energy_dict) > 10:
+                                        st.write(f"  ... and {len(energy_dict) - 10} more")
+                        else:
+                            energies = coord_df['energy'].values
+                            st.success(f"✅ Energies loaded: {len(energies)} values (order-based matching)")
+                    else:
+                        st.warning(f"⚠️ No 'energy' column found. Available columns: {list(coord_df.columns)}")
+                        st.info("💡 Expected format: two columns with structure names and energy values")
+
+                except Exception as e:
+                    st.error(f"❌ Error loading file: {str(e)}")
+                    st.info("💡 **Expected file format:**")
+                    st.code("""# Optional header line starting with #
+            config_1.poscar	-4.563
+            config_2.poscar	-4.621
+
+            Or with comma/space/semicolon:
+            config_1.poscar,-4.563
+            config_2.poscar,-4.621""")
 
             pca_tabs = st.tabs([
+                "📈 PCA, k-Means Clustering",
                 "⚙️ PCA Settings & Computation",
                 "📊 Variance Analysis",
                 "🗺️ PCA Scatter Plots",
-                "📈 Summary & Export"
+                "📈 Summary & Export",
+                "🔧 Generate Analysis Script"
             ])
-
             with pca_tabs[0]:
+                st.subheader("PCA Dimensionality Reduction → 2D Visualization")
+
+                st.info("Use PCA to reduce fingerprints to fewer dimensions, then visualize with t-SNE or UMAP")
+
+                reduction_col1, reduction_col2 = st.columns([1, 2])
+
+                with reduction_col1:
+                    st.markdown("**Step 1: PCA Reduction**")
+
+                    n_pca_components = st.slider(
+                        "Number of PCA components",
+                        min_value=2,
+                        max_value=min(5000, fingerprints.shape[0], fingerprints.shape[1]),
+                        value=max(fingerprints.shape[0], fingerprints.shape[1]),
+                        step=1,
+                        key='n_pca_reduction'
+                    )
+
+                    apply_standardization_reduction = st.checkbox(
+                        "Apply standardization",
+                        value=False,
+                        key='std_reduction'
+                    )
+
+                    st.markdown("---")
+                    st.markdown("**Step 2: 2D Visualization Method**")
+
+                    viz_methods = ["t-SNE"]
+                    if UMAP_AVAILABLE:
+                        viz_methods.append("UMAP")
+                    else:
+                        st.caption("⚠️ UMAP not available. Install with: pip install umap-learn")
+
+                    viz_method = st.selectbox(
+                        "Select method",
+                        options=viz_methods,
+                        index=1,
+                        key='viz_method_selector'
+                    )
+
+                    if viz_method == "t-SNE":
+                        st.markdown("**t-SNE Parameters**")
+                        tsne_perp_red = st.number_input(
+                            "Perplexity",
+                            min_value=5,
+                            max_value=50,
+                            value=30,
+                            step=5,
+                            key='tsne_perp_red'
+                        )
+                        tsne_iter_red = st.number_input(
+                            "Max iterations",
+                            min_value=250,
+                            max_value=5000,
+                            value=1000,
+                            step=250,
+                            key='tsne_iter_red'
+                        )
+                        tsne_lr_red = st.number_input(
+                            "Learning rate",
+                            min_value=10.0,
+                            max_value=1000.0,
+                            value=200.0,
+                            step=50.0,
+                            key='tsne_lr_red'
+                        )
+                    else:
+                        st.markdown("**UMAP Parameters**")
+                        umap_neighbors = st.number_input(
+                            "N neighbors",
+                            min_value=2,
+                            max_value=200,
+                            value=15,
+                            step=5,
+                            key='umap_neighbors'
+                        )
+                        umap_min_dist = st.number_input(
+                            "Min distance",
+                            min_value=0.0,
+                            max_value=1.0,
+                            value=0.1,
+                            step=0.05,
+                            key='umap_min_dist'
+                        )
+
+                    st.markdown("---")
+                    st.markdown("**Step 3: Clustering (Optional)**")
+
+                    perform_clustering_reduction = st.checkbox(
+                        "Perform k-means clustering",
+                        value=True,
+                        key='cluster_reduction'
+                    )
+
+                    if perform_clustering_reduction:
+                        n_clusters_reduction = st.slider(
+                            "Number of clusters",
+                            min_value=2,
+                            max_value=20,
+                            value=3,
+                            step=1,
+                            key='n_clusters_red'
+                        )
+
+                        cluster_on = st.radio(
+                            "Cluster based on:",
+                            ["PCA-reduced features", "2D coordinates"],
+                            index=0,
+                            key='cluster_on_red'
+                        )
+
+                        highlight_centroids = st.checkbox(
+                            "Highlight closest to centroids",
+                            value=True,
+                            key='highlight_centroids'
+                        )
+
+                    st.markdown("---")
+
+                    compute_reduction = st.button(
+                        "Compute Reduction & Visualization",
+                        type="primary",
+                        key='compute_reduction_btn'
+                    )
+
+                with reduction_col2:
+                    if compute_reduction or 'reduction_computed' in st.session_state:
+
+                        if compute_reduction:
+                            with st.spinner("Computing PCA reduction..."):
+                                if apply_standardization_reduction:
+                                    scaler_red = StandardScaler()
+                                    fingerprints_scaled_red = scaler_red.fit_transform(fingerprints)
+                                else:
+                                    fingerprints_scaled_red = fingerprints
+
+                                pca_reducer = PCA(n_components=n_pca_components)
+                                pca_reduced = pca_reducer.fit_transform(fingerprints_scaled_red)
+
+                                explained_var_reduced = pca_reducer.explained_variance_ratio_ * 100
+                                cumulative_var_reduced = np.cumsum(explained_var_reduced)
+
+                                st.success(f"✅ PCA reduced to {n_pca_components} components")
+                                st.info(f"Cumulative variance explained: {cumulative_var_reduced[-1]:.2f}%")
+
+                            with st.spinner(f"Computing {viz_method}..."):
+                                if viz_method == "t-SNE":
+                                    n_samples = pca_reduced.shape[0]
+                                    actual_perp = min(tsne_perp_red, n_samples - 1) if n_samples > 1 else 1
+
+                                    tsne_model = TSNE(
+                                        n_components=2,
+                                        perplexity=actual_perp,
+                                        max_iter=int(tsne_iter_red),
+                                        learning_rate=tsne_lr_red,
+                                        random_state=42
+                                    )
+                                    coords_2d = tsne_model.fit_transform(pca_reduced)
+                                else:
+                                    umap_model = umap.UMAP(
+                                        n_components=2,
+                                        n_neighbors=int(umap_neighbors),
+                                        min_dist=umap_min_dist,
+                                        random_state=42
+                                    )
+                                    coords_2d = umap_model.fit_transform(pca_reduced)
+
+                                st.success(f"✅ {viz_method} computation completed")
+
+                            if perform_clustering_reduction:
+                                with st.spinner("Performing k-means clustering..."):
+                                    if cluster_on == "PCA-reduced features":
+                                        cluster_data = pca_reduced
+                                    else:
+                                        cluster_data = coords_2d
+
+                                    kmeans_red = KMeans(
+                                        n_clusters=n_clusters_reduction,
+                                        random_state=42,
+                                        n_init=10
+                                    )
+                                    clusters_red = kmeans_red.fit_predict(cluster_data)
+                                    centroids = kmeans_red.cluster_centers_
+
+                                    if highlight_centroids:
+                                        closest_to_centroids = {}
+                                        for cluster_id in range(n_clusters_reduction):
+                                            cluster_mask = clusters_red == cluster_id
+                                            cluster_points = cluster_data[cluster_mask]
+                                            cluster_indices = np.where(cluster_mask)[0]
+
+                                            distances = np.linalg.norm(
+                                                cluster_points - centroids[cluster_id],
+                                                axis=1
+                                            )
+                                            closest_idx_in_cluster = np.argmin(distances)
+                                            closest_idx_global = cluster_indices[closest_idx_in_cluster]
+
+                                            closest_to_centroids[cluster_id] = closest_idx_global
+                                    else:
+                                        closest_to_centroids = {}
+
+                                    st.success(f"✅ Clustering completed: {n_clusters_reduction} clusters")
+                            else:
+                                clusters_red = None
+                                closest_to_centroids = {}
+
+                            st.session_state['reduction_computed'] = True
+                            st.session_state['pca_reduced'] = pca_reduced
+                            st.session_state['coords_2d'] = coords_2d
+                            st.session_state['clusters_red'] = clusters_red
+                            st.session_state['closest_to_centroids'] = closest_to_centroids
+                            st.session_state['viz_method_used'] = viz_method
+                            st.session_state['n_pca_components'] = n_pca_components
+                            st.session_state['explained_var_reduced'] = explained_var_reduced
+                            st.session_state['cumulative_var_reduced'] = cumulative_var_reduced
+
+                        pca_reduced = st.session_state['pca_reduced']
+                        coords_2d = st.session_state['coords_2d']
+                        clusters_red = st.session_state['clusters_red']
+                        closest_to_centroids = st.session_state['closest_to_centroids']
+                        viz_method_used = st.session_state['viz_method_used']
+
+                        if structure_names is not None and len(structure_names) == len(coords_2d):
+                            struct_names_plot = structure_names
+                        else:
+                            struct_names_plot = [f'Structure_{i + 1}' for i in range(len(coords_2d))]
+
+                        plot_df = pd.DataFrame({
+                            'x': coords_2d[:, 0],
+                            'y': coords_2d[:, 1],
+                            'structure': struct_names_plot
+                        })
+
+                        if energies is not None and len(energies) == len(coords_2d):
+                            plot_df['energy'] = energies
+
+                        if clusters_red is not None:
+                            plot_df['cluster'] = clusters_red
+                            plot_df['cluster_label'] = [f'Cluster {c + 1}' for c in clusters_red]
+
+                        st.markdown(f"### {viz_method_used} Visualization from PCA-Reduced Data")
+
+                        # Plotting controls
+                        st.markdown("**Plot Settings**")
+
+                        point_size_red = st.slider(
+                            "Point size",
+                            min_value=5,
+                            max_value=50,
+                            value=20,
+                            step=5,
+                            key='point_size_red'
+                        )
+
+                        show_labels_red = st.checkbox(
+                            "Show structure labels",
+                            value=False,
+                            key='show_labels_red'
+                        )
+
+                        st.markdown("---")
+                        st.markdown("**Coloring Options**")
+
+                        coloring_options = ["Default (single color)"]
+
+                        if clusters_red is not None:
+                            coloring_options.append("By Cluster")
+
+                        if 'energy' in plot_df.columns and plot_df['energy'].notna().any():
+                            coloring_options.append("By Energy")
+
+                        color_mode = st.radio(
+                            "Color points by:",
+                            options=coloring_options,
+                            index=1 if len(coloring_options) > 1 else 0,
+                            key='color_mode_red'
+                        )
+
+                        if color_mode == "By Energy":
+                            cmap_red = st.selectbox(
+                                "Colormap",
+                                ["Viridis", "Plasma", "Inferno", "Magma", "Turbo", "RdYlBu_r"],
+                                index=0,
+                                key='cmap_red'
+                            )
+
+                            st.markdown("**Color Scale Range**")
+                            energy_min_val = float(plot_df['energy'].min())
+                            energy_max_val = float(plot_df['energy'].max())
+
+                            use_custom_range_red = st.checkbox("Use custom range", value=False, key='custom_range_red')
+
+                            if use_custom_range_red:
+                                color_min_red = st.number_input("Minimum", value=energy_min_val, step=0.001,
+                                                                format="%.6f", key='color_min_red')
+                                color_max_red = st.number_input("Maximum", value=energy_max_val, step=0.001,
+                                                                format="%.6f", key='color_max_red')
+                            else:
+                                color_min_red = energy_min_val
+                                color_max_red = energy_max_val
+
+                        st.markdown("---")
+
+                        if color_mode == "By Cluster":
+                            fig_red = px.scatter(
+                                plot_df,
+                                x='x',
+                                y='y',
+                                color='cluster_label',
+                                hover_data=['structure', 'energy', 'cluster'] if 'energy' in plot_df.columns else [
+                                    'structure', 'cluster'],
+                                labels={
+                                    'x': f'{viz_method_used} Component 1',
+                                    'y': f'{viz_method_used} Component 2',
+                                    'cluster_label': 'Cluster'
+                                },
+                                title=f'{viz_method_used} from {st.session_state["n_pca_components"]} PCA Components - Clustered',
+                                color_discrete_sequence=px.colors.qualitative.Set3,
+                                width=900,
+                                height=700
+                            )
+
+                            fig_red.update_traces(
+                                marker=dict(size=point_size_red, line=dict(width=1, color='DarkSlateGrey'))
+                            )
+
+                            if len(closest_to_centroids) > 0:
+                                for cluster_id, closest_idx in closest_to_centroids.items():
+                                    fig_red.add_trace(
+                                        go.Scatter(
+                                            x=[coords_2d[closest_idx, 0]],
+                                            y=[coords_2d[closest_idx, 1]],
+                                            mode='markers',
+                                            marker=dict(
+                                                size=point_size_red * 2,
+                                                color='gold',
+                                                symbol='star',
+                                                line=dict(width=3, color='black')
+                                            ),
+                                            name=f'Centroid {cluster_id + 1}',
+                                            showlegend=True,
+                                            hovertext=f'Closest to Cluster {cluster_id + 1} centroid<br>{struct_names_plot[closest_idx]}',
+                                            hoverinfo='text'
+                                        )
+                                    )
+
+                        elif color_mode == "By Energy":
+                            fig_red = px.scatter(
+                                plot_df,
+                                x='x',
+                                y='y',
+                                color='energy',
+                                hover_data=['structure', 'energy'],
+                                labels={
+                                    'x': f'{viz_method_used} Component 1',
+                                    'y': f'{viz_method_used} Component 2',
+                                    'energy': 'Energy (eV)'
+                                },
+                                title=f'{viz_method_used} from {st.session_state["n_pca_components"]} PCA Components - Colored by Energy',
+                                color_continuous_scale=cmap_red.lower(),
+                                range_color=[color_min_red, color_max_red],
+                                width=900,
+                                height=700
+                            )
+
+                            fig_red.update_traces(
+                                marker=dict(size=point_size_red, line=dict(width=1, color='DarkSlateGrey'))
+                            )
+
+                        else:
+                            fig_red = px.scatter(
+                                plot_df,
+                                x='x',
+                                y='y',
+                                hover_data=['structure', 'energy'] if 'energy' in plot_df.columns else ['structure'],
+                                labels={
+                                    'x': f'{viz_method_used} Component 1',
+                                    'y': f'{viz_method_used} Component 2'
+                                },
+                                title=f'{viz_method_used} from {st.session_state["n_pca_components"]} PCA Components',
+                                width=900,
+                                height=700
+                            )
+
+                            fig_red.update_traces(
+                                marker=dict(size=point_size_red, color='steelblue',
+                                            line=dict(width=1, color='DarkSlateGrey'))
+                            )
+
+                        if show_labels_red:
+                            for i, row in plot_df.iterrows():
+                                fig_red.add_annotation(
+                                    x=row['x'],
+                                    y=row['y'],
+                                    text=row['structure'],
+                                    showarrow=False,
+                                    font=dict(size=10),
+                                    xshift=5,
+                                    yshift=5,
+                                    opacity=0.7
+                                )
+
+                        fig_red.update_layout(
+                            hovermode='closest',
+                            plot_bgcolor='white',
+                            xaxis=dict(
+                                showgrid=True,
+                                gridwidth=1,
+                                gridcolor='LightGray',
+                                title_font=dict(size=20, color='black'),
+                                tickfont=dict(size=16, color='black'),
+                                linecolor='black',
+                                linewidth=2
+                            ),
+                            yaxis=dict(
+                                showgrid=True,
+                                gridwidth=1,
+                                gridcolor='LightGray',
+                                title_font=dict(size=20, color='black'),
+                                tickfont=dict(size=16, color='black'),
+                                linecolor='black',
+                                linewidth=2
+                            ),
+                            hoverlabel=dict(
+                                font_size=16,
+                                font_family="Arial"
+                            ),
+                            legend=dict(
+                                font=dict(size=14),
+                                bgcolor='rgba(255,255,255,0.8)'
+                            )
+                        )
+
+                        st.plotly_chart(fig_red, use_container_width=True)
+
+                        if len(closest_to_centroids) > 0:
+                            st.markdown("---")
+                            st.subheader("🎯 Structures Closest to Cluster Centroids")
+
+                            centroid_data = []
+                            for cluster_id, closest_idx in sorted(closest_to_centroids.items()):
+                                struct_name = struct_names_plot[closest_idx]
+                                energy_val = energies[closest_idx] if energies is not None else None
+
+                                centroid_data.append({
+                                    'Cluster': f'Cluster {cluster_id + 1}',
+                                    'Structure': struct_name,
+                                    'Energy (eV)': f'{energy_val:.6f}' if energy_val is not None else 'N/A',
+                                    'X': f'{coords_2d[closest_idx, 0]:.4f}',
+                                    'Y': f'{coords_2d[closest_idx, 1]:.4f}'
+                                })
+
+                            centroid_df = pd.DataFrame(centroid_data)
+
+                            st.dataframe(
+                                centroid_df,
+                                use_container_width=True,
+                                hide_index=True
+                            )
+
+                            st.markdown("**Export Centroid Structures**")
+
+                            csv_centroids = centroid_df.to_csv(index=False)
+                            st.download_button(
+                                label="Download Centroid Structures (CSV)",
+                                data=csv_centroids,
+                                file_name=f"centroid_structures_{viz_method_used}.csv",
+                                mime="text/csv",
+                                key='download_centroids'
+                            )
+
+                        st.markdown("---")
+                        st.subheader("📥 Export All Data")
+
+                        export_cols = st.columns(3)
+
+                        with export_cols[0]:
+                            full_export_df = plot_df.copy()
+                            csv_full = full_export_df.to_csv(index=False)
+                            st.download_button(
+                                label=f"Download {viz_method_used} Coordinates (CSV)",
+                                data=csv_full,
+                                file_name=f"pca_reduced_{viz_method_used.lower()}_coordinates.csv",
+                                mime="text/csv",
+                                key='download_coords'
+                            )
+
+                        with export_cols[1]:
+                            html_export_red = fig_red.to_html()
+                            st.download_button(
+                                label="Download Interactive Plot (HTML)",
+                                data=html_export_red,
+                                file_name=f"pca_reduced_{viz_method_used.lower()}_plot.html",
+                                mime="text/html",
+                                key='download_html'
+                            )
+
+                        with export_cols[2]:
+                            if clusters_red is not None:
+                                cluster_summary = []
+                                for cluster_id in range(len(set(clusters_red))):
+                                    cluster_mask = clusters_red == cluster_id
+                                    cluster_structures = [struct_names_plot[i] for i in np.where(cluster_mask)[0]]
+                                    cluster_energies = energies[cluster_mask] if energies is not None else None
+
+                                    summary_entry = {
+                                        'Cluster': f'Cluster {cluster_id + 1}',
+                                        'N_Structures': int(cluster_mask.sum()),
+                                        'Structures': '; '.join(cluster_structures)
+                                    }
+
+                                    if cluster_energies is not None:
+                                        summary_entry['Mean_Energy'] = float(np.mean(cluster_energies))
+                                        summary_entry['Min_Energy'] = float(np.min(cluster_energies))
+                                        summary_entry['Max_Energy'] = float(np.max(cluster_energies))
+
+                                    cluster_summary.append(summary_entry)
+
+                                cluster_summary_df = pd.DataFrame(cluster_summary)
+                                csv_cluster_summary = cluster_summary_df.to_csv(index=False)
+
+                                st.download_button(
+                                    label="Download Cluster Summary (CSV)",
+                                    data=csv_cluster_summary,
+                                    file_name=f"cluster_summary_{viz_method_used.lower()}.csv",
+                                    mime="text/csv",
+                                    key='download_cluster_summary'
+                                )
+                    else:
+                        st.info("👈 Configure parameters and click 'Compute Reduction & Visualization' to start")
+            with pca_tabs[1]:
                 st.subheader("PCA Configuration")
 
                 col1, col2 = st.columns(2)
@@ -1174,7 +2125,7 @@ with tab_pca:
 
                 st.success("✅ PCA computation completed successfully!")
 
-            with pca_tabs[1]:
+            with pca_tabs[2]:
                 st.subheader("Variance Analysis")
 
                 st.markdown("#### Variance Explained by Each Component")
@@ -1285,7 +2236,7 @@ with tab_pca:
 
                 st.success(f"✨ **{n_components_threshold} components** explain **{variance_threshold}%** of the variance")
 
-            with pca_tabs[2]:
+            with pca_tabs[3]:
                 st.subheader("PCA Scatter Plots")
 
                 scatter_col1, scatter_col2 = st.columns([1, 2])
@@ -1407,7 +2358,7 @@ with tab_pca:
 
                     st.plotly_chart(fig_pca, use_container_width=True)
 
-            with pca_tabs[3]:
+            with pca_tabs[4]:
                 st.subheader("Summary Statistics")
 
                 summary_col1, summary_col2, summary_col3 = st.columns(3)
@@ -1460,6 +2411,7 @@ with tab_pca:
                         file_name="pca_plot.html",
                         mime="text/html"
                     )
+
 with tab_neighbor:
     st.header("Nearest Neighbor Distance Analysis")
 
@@ -1706,12 +2658,10 @@ def main():
             atoms = read(str(file_path))
             energy = energies.get(filename, None)
 
-            # Get element composition for correlation analysis
             composition = {{}}
             for atom in atoms:
                 composition[atom.symbol] = composition.get(atom.symbol, 0) + 1
 
-            # Calculate for each element pair
             for elem1, elem2 in element_pairs:
                 neighbors = get_nearest_neighbors(atoms, elem1, elem2, INCLUDE_SECOND)
 
@@ -1730,7 +2680,6 @@ def main():
             print(f"  Error: {{str(e)}}")
             continue
 
-    # Save results
     df = pd.DataFrame(results)
     df.to_csv(OUTPUT_FILE, index=False)
 
@@ -1744,7 +2693,6 @@ def main():
     print(f"Structures analyzed: {{df['filename'].nunique()}}")
     print()
 
-    # Summary by element pair
     print("Summary by element pair:")
     for pair in sorted(df['element_pair'].unique()):
         pair_data = df[df['element_pair'] == pair]
@@ -1795,12 +2743,11 @@ if __name__ == "__main__":
         if nn_csv_file is not None:
             df_nn = pd.read_csv(nn_csv_file)
 
-            # Get info
+
             first_pair = df_nn['element_pair'].iloc[0]
             reference_elem = first_pair.split('-')[0]
             element_pairs = sorted(df_nn['element_pair'].unique())
 
-            # Filter to show only first nearest neighbor by default
             neighbor_orders = sorted(df_nn['neighbor_order'].unique())
 
             st.success(f"✅ Loaded data: {df_nn['filename'].nunique()} structures, {len(element_pairs)} element pairs")
@@ -1810,7 +2757,6 @@ if __name__ == "__main__":
             with viz_col2:
                 st.markdown("**Plot Settings**")
 
-                # Neighbor order filter
                 if len(neighbor_orders) > 1:
                     selected_neighbor_order = st.selectbox(
                         "Neighbor Order",
@@ -1832,7 +2778,6 @@ if __name__ == "__main__":
 
                 marker_size = st.slider("Marker size", 2, 12, 6, key='nn_marker')
 
-                # Add after marker_size slider
                 st.markdown("---")
                 st.markdown("**Y-Axis Options**")
 
@@ -1862,7 +2807,7 @@ if __name__ == "__main__":
                             format="%.4f"
                         )
 
-                        # Apply filter
+
                         df_nn_filtered = df_nn_filtered[
                             (df_nn_filtered['energy'] >= energy_range[0]) &
                             (df_nn_filtered['energy'] <= energy_range[1])
@@ -1870,7 +2815,6 @@ if __name__ == "__main__":
 
                         st.info(f"Showing {df_nn_filtered['filename'].nunique()} structures in selected energy range")
 
-                # Clustering and coloring options
                 st.markdown("---")
                 st.markdown("**Clustering & Coloring**")
 
@@ -1920,14 +2864,12 @@ if __name__ == "__main__":
 
             with viz_col1:
                 if selected_pairs:
-                    # Create subplots
                     n_pairs = len(selected_pairs)
                     n_cols = min(3, n_pairs)
                     n_rows = int(np.ceil(n_pairs / n_cols))
 
                     from plotly.subplots import make_subplots
 
-                    # Get global min/max energy for consistent colorscale
                     if 'energy' in df_nn_filtered.columns and df_nn_filtered['energy'].notna().any():
                         global_min_energy = df_nn_filtered['energy'].min()
                         global_max_energy = df_nn_filtered['energy'].max()
@@ -1949,7 +2891,6 @@ if __name__ == "__main__":
 
                         pair_data = df_nn_filtered[df_nn_filtered['element_pair'] == pair]
 
-                        # Find structure with minimum energy for this pair
                         if 'energy' in pair_data.columns and pair_data['energy'].notna().any():
                             min_energy_idx = pair_data['energy'].idxmin()
                             min_energy_structure = pair_data.loc[min_energy_idx, 'filename']
@@ -1958,7 +2899,6 @@ if __name__ == "__main__":
                             min_energy_structure = None
                             min_energy_value = None
 
-                        # Collect all data points
                         all_x = []
                         all_y = []
                         all_colors = []
@@ -2015,7 +2955,6 @@ if __name__ == "__main__":
                                     hover_text += '<b>⭐ MINIMUM ENERGY</b>'
                                 all_texts.append(hover_text)
 
-                        # Plot minimum energy structures (red stars)
                         min_energy_mask = [s == 'star' for s in all_symbols]
                         if any(min_energy_mask):
                             fig.add_trace(
@@ -2035,7 +2974,6 @@ if __name__ == "__main__":
                                 row=row, col=col
                             )
 
-                        # Plot regular structures
                         regular_mask = [s == 'circle' for s in all_symbols]
                         if any(regular_mask):
                             regular_x = [x for x, is_reg in zip(all_x, regular_mask) if is_reg]
