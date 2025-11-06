@@ -7,3 +7,4 @@ ase
 dscribe
 pandas
 plotly
+umap-learn
