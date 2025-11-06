@@ -865,7 +865,7 @@ with tab_pca:
                 script_reduction_method = st.selectbox(
                     "2D visualization method",
                     options=script_reduction_methods,
-                    index=1,
+                    index=0,
                     key='script_reduction_method'
                 )
 
