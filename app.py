@@ -317,16 +317,19 @@ except Exception as e:
         else:
             energy_code = "\nenergies = None\n"
 
-
         save_fingerprints_code = ""
         if save_fingerprints:
             npz_filename = fingerprints_filename.replace('.npy', '.npz')
             save_fingerprints_code = f"""
-print("Saving fingerprints and structure names...")
+print("Saving fingerprints, structure names, and energies...")
+# Prepare energy array matching structure names
+energy_array = np.array([energies.get(name, np.nan) if energies else np.nan for name in structure_names])
+
 np.savez("{npz_filename}", 
          fingerprints=np.array(fingerprints),
-         structure_names=np.array(structure_names))
-print(f"  Fingerprints and structure names saved to {npz_filename}")
+         structure_names=np.array(structure_names),
+         energies=energy_array)
+print(f"  Fingerprints, structure names, and energies saved to {npz_filename}")
 """
         save_tsne_code = ""
         if save_tsne_coords:
@@ -1086,6 +1089,10 @@ with tab_pca:
                 data = np.load(fingerprint_file_tsne)
                 fingerprints_data = data['fingerprints']
                 structure_names_tsne = data['structure_names'].tolist() if 'structure_names' in data else None
+                if 'energies' in data:
+                    energies_tsne = data['energies']
+                    valid_energy_count = np.sum(~np.isnan(energies_tsne))
+                    st.success(f"✅ Energies loaded from .npz file: {valid_energy_count} structures with energy data")
             else:
                 fingerprints_data = np.load(fingerprint_file_tsne)
                 structure_names_tsne = None
@@ -1392,20 +1399,31 @@ with tab_pca:
                                             key='pca_fingerprints')
 
         if fingerprint_file is not None:
+            energies = None
+            structure_names = None
+
             if fingerprint_file.name.endswith('.npz'):
                 data = np.load(fingerprint_file)
                 fingerprints = data['fingerprints']
                 structure_names = data['structure_names'].tolist() if 'structure_names' in data else None
+
+                if 'energies' in data:
+                    energies = data['energies']
+                    valid_energy_count = np.sum(~np.isnan(energies))
+                    if valid_energy_count > 0:
+                        st.success(
+                            f"✅ Energies loaded from .npz file: {valid_energy_count}/{len(energies)} structures with energy data")
+                    else:
+                        st.info("📋 No valid energy data found in .npz file")
+                        energies = None
             else:
                 fingerprints = np.load(fingerprint_file)
-                structure_names = None
 
             st.success(f"✅ Loaded fingerprints: {fingerprints.shape[0]} structures, {fingerprints.shape[1]} features")
 
             if structure_names is not None:
                 st.success(f"✅ Structure names loaded from .npz file: {len(structure_names)} structures")
 
-            energies = None
 
             coord_file = st.file_uploader(
                 "Upload CSV/TXT with energies (optional - names loaded from .npz if available)",
@@ -1555,14 +1573,22 @@ with tab_pca:
                 with reduction_col1:
                     st.markdown("**Step 1: PCA Reduction**")
 
+                    max_pca_components = min(5000, fingerprints.shape[0], fingerprints.shape[1])
+
+                    default_pca_components = min(max_pca_components, max(10, int(max_pca_components * 0.99)))
+
                     n_pca_components = st.slider(
                         "Number of PCA components",
                         min_value=2,
-                        max_value=min(5000, fingerprints.shape[0], fingerprints.shape[1]),
-                        value=max(fingerprints.shape[0], fingerprints.shape[1]),
+                        max_value=max_pca_components,
+                        value=default_pca_components,
                         step=1,
-                        key='n_pca_reduction'
+                        key='n_pca_reduction',
+                        help=f"Maximum available: {max_pca_components} components (limited by min(n_samples, n_features))"
                     )
+
+                    st.caption(
+                        f"Data shape: {fingerprints.shape[0]} samples × {fingerprints.shape[1]} features → Max PCA components: {max_pca_components}")
 
                     apply_standardization_reduction = st.checkbox(
                         "Apply standardization",
@@ -1675,6 +1701,8 @@ with tab_pca:
                     if compute_reduction or 'reduction_computed' in st.session_state:
 
                         if compute_reduction:
+                            current_energies = energies if energies is not None else None
+                            current_structure_names = structure_names if structure_names is not None else None
                             with st.spinner("Computing PCA reduction..."):
                                 if apply_standardization_reduction:
                                     scaler_red = StandardScaler()
@@ -1763,14 +1791,24 @@ with tab_pca:
                             st.session_state['explained_var_reduced'] = explained_var_reduced
                             st.session_state['cumulative_var_reduced'] = cumulative_var_reduced
 
+                            st.session_state['energies_for_plot'] = current_energies
+                            st.session_state['structure_names_for_plot'] = current_structure_names
+
                         pca_reduced = st.session_state['pca_reduced']
                         coords_2d = st.session_state['coords_2d']
                         clusters_red = st.session_state['clusters_red']
                         closest_to_centroids = st.session_state['closest_to_centroids']
                         viz_method_used = st.session_state['viz_method_used']
 
-                        if structure_names is not None and len(structure_names) == len(coords_2d):
-                            struct_names_plot = structure_names
+                        energies_plot = st.session_state.get('energies_for_plot', energies)
+                        structure_names_plot = st.session_state.get('structure_names_for_plot', structure_names)
+
+                        # Use energies from session state if available, otherwise use outer scope
+                        energies_to_use = st.session_state.get('energies_for_plot', energies)
+                        structure_names_to_use = st.session_state.get('structure_names_for_plot', structure_names)
+
+                        if structure_names_to_use is not None and len(structure_names_to_use) == len(coords_2d):
+                            struct_names_plot = structure_names_to_use
                         else:
                             struct_names_plot = [f'Structure_{i + 1}' for i in range(len(coords_2d))]
 
@@ -1780,8 +1818,15 @@ with tab_pca:
                             'structure': struct_names_plot
                         })
 
-                        if energies is not None and len(energies) == len(coords_2d):
-                            plot_df['energy'] = energies
+                        # Add energies if available - with debug info
+                        if energies_to_use is not None and len(energies_to_use) == len(coords_2d):
+                            plot_df['energy'] = energies_to_use
+                            valid_count = plot_df['energy'].notna().sum()
+                            st.success(f"✅ Energy data added to visualization: {valid_count} structures")
+                        else:
+                            if energies_to_use is not None:
+                                st.warning(
+                                    f"⚠️ Energy length mismatch: {len(energies_to_use)} energies vs {len(coords_2d)} coordinates")
 
                         if clusters_red is not None:
                             plot_df['cluster'] = clusters_red
@@ -2015,13 +2060,13 @@ with tab_pca:
                                 data=csv_centroids,
                                 file_name=f"centroid_structures_{viz_method_used}.csv",
                                 mime="text/csv",
+                                type='primary',
                                 key='download_centroids'
                             )
 
                         st.markdown("---")
                         st.subheader("📥 Export All Data")
-
-                        export_cols = st.columns(3)
+                        export_cols = st.columns(4)
 
                         with export_cols[0]:
                             full_export_df = plot_df.copy()
@@ -2031,6 +2076,7 @@ with tab_pca:
                                 data=csv_full,
                                 file_name=f"pca_reduced_{viz_method_used.lower()}_coordinates.csv",
                                 mime="text/csv",
+                                type='primary',
                                 key='download_coords'
                             )
 
@@ -2041,10 +2087,48 @@ with tab_pca:
                                 data=html_export_red,
                                 file_name=f"pca_reduced_{viz_method_used.lower()}_plot.html",
                                 mime="text/html",
+                                type='primary',
                                 key='download_html'
                             )
 
                         with export_cols[2]:
+                            if clusters_red is not None:
+                                cluster_assignment_df = pd.DataFrame({
+                                    'structure': struct_names_plot,
+                                    'cluster': clusters_red + 1
+                                })
+
+                                if energies is not None and len(energies) == len(struct_names_plot):
+                                    cluster_assignment_df['energy'] = energies
+
+                                cluster_assignment_df['x'] = coords_2d[:, 0]
+                                cluster_assignment_df['y'] = coords_2d[:, 1]
+
+                                if 'energy' in cluster_assignment_df.columns:
+                                    cluster_assignment_df = cluster_assignment_df.sort_values(
+                                        by=['cluster', 'energy'],
+                                        ascending=[True, True],
+                                        na_position='last'
+                                    ).reset_index(drop=True)
+                                else:
+                                    cluster_assignment_df = cluster_assignment_df.sort_values(
+                                        by='cluster',
+                                        ascending=True
+                                    ).reset_index(drop=True)
+
+                                csv_cluster_assignments = cluster_assignment_df.to_csv(index=False)
+                                st.download_button(
+                                    label="Download Cluster Assignments (CSV)",
+                                    data=csv_cluster_assignments,
+                                    file_name=f"cluster_assignments_{viz_method_used.lower()}.csv",
+                                    mime="text/csv",
+                                    type='primary',
+                                    key='download_cluster_assignments'
+                                )
+                            else:
+                                st.info("Enable clustering to export assignments")
+
+                        with export_cols[3]:
                             if clusters_red is not None:
                                 cluster_summary = []
                                 for cluster_id in range(len(set(clusters_red))):
@@ -2073,6 +2157,7 @@ with tab_pca:
                                     data=csv_cluster_summary,
                                     file_name=f"cluster_summary_{viz_method_used.lower()}.csv",
                                     mime="text/csv",
+                                    type='primary',
                                     key='download_cluster_summary'
                                 )
                     else:
