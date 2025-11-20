@@ -97,7 +97,7 @@ css = '''
 st.markdown(css, unsafe_allow_html=True)
 
 main_tab1, main_tab2, tab_pca, tab_neighbor, main_tab3,  = st.tabs(["Generate Script", "Interactive Visualization: 2D t-SNE Map",
-                                                      "PCA Analysis", "Nearest Neighbor Analysis", "Getting Started Guide"])
+                                                      "PCA Analysis, UMAP", "Nearest Neighbor Analysis", "Getting Started Guide"])
 
 with main_tab1:
     st.success("""
@@ -766,10 +766,10 @@ with main_tab2:
                 )
             )
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, )
 
         st.subheader("Data Preview")
-        st.dataframe(df.head(), use_container_width=True)
+        st.dataframe(df.head(), width="stretch")
 
         st.subheader("Export Options")
 
@@ -1363,11 +1363,11 @@ with tab_pca:
                         )
                     )
 
-                    st.plotly_chart(fig_calc, use_container_width=True)
+                    st.plotly_chart(fig_calc)
 
                 st.markdown("---")
                 st.subheader("Data Preview")
-                st.dataframe(df_viz.head(10), use_container_width=True)
+                st.dataframe(df_viz.head(10))
 
                 st.subheader("Export Options")
 
@@ -1685,7 +1685,7 @@ with tab_pca:
 
                         highlight_centroids = st.checkbox(
                             "Highlight closest to centroids",
-                            value=True,
+                            value=False,
                             key='highlight_centroids'
                         )
 
@@ -2025,7 +2025,7 @@ with tab_pca:
                             )
                         )
 
-                        st.plotly_chart(fig_red, use_container_width=True)
+                        st.plotly_chart(fig_red,)
 
                         if len(closest_to_centroids) > 0:
                             st.markdown("---")
@@ -2048,7 +2048,6 @@ with tab_pca:
 
                             st.dataframe(
                                 centroid_df,
-                                use_container_width=True,
                                 hide_index=True
                             )
 
@@ -2252,7 +2251,7 @@ with tab_pca:
                     )
                 )
 
-                st.plotly_chart(fig_var, use_container_width=True)
+                st.plotly_chart(fig_var, )
 
                 st.markdown("---")
 
@@ -2317,7 +2316,7 @@ with tab_pca:
                     )
                 )
 
-                st.plotly_chart(fig_cum, use_container_width=True)
+                st.plotly_chart(fig_cum, )
 
                 st.success(f"✨ **{n_components_threshold} components** explain **{variance_threshold}%** of the variance")
 
@@ -2441,7 +2440,7 @@ with tab_pca:
                         )
                     )
 
-                    st.plotly_chart(fig_pca, use_container_width=True)
+                    st.plotly_chart(fig_pca, )
 
             with pca_tabs[4]:
                 st.subheader("Summary Statistics")
@@ -3201,7 +3200,7 @@ if __name__ == "__main__":
                         plot_bgcolor='white'
                     )
 
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, )
 
                     # Info boxes
                     col_info1, col_info2 = st.columns(2)
@@ -3339,7 +3338,7 @@ if __name__ == "__main__":
                                 paper_bgcolor='white'
                             )
 
-                            st.plotly_chart(fig_heatmap, use_container_width=True)
+                            st.plotly_chart(fig_heatmap, )
 
 
                             st.subheader("Bar Chart View")
@@ -3386,7 +3385,7 @@ if __name__ == "__main__":
                                 paper_bgcolor='white'
                             )
 
-                            st.plotly_chart(fig_bar, use_container_width=True)
+                            st.plotly_chart(fig_bar,)
 
 
                             with st.expander("📖 How to interpret these correlations"):
@@ -3443,7 +3442,6 @@ if __name__ == "__main__":
 
                             st.dataframe(
                                 corr_count_df,
-                                use_container_width=True,
                                 hide_index=True,
                                 column_config={
                                     "Element": st.column_config.TextColumn(width="medium"),
@@ -3486,7 +3484,7 @@ if __name__ == "__main__":
 
                             st.dataframe(
                                 corr_dist_df,
-                                use_container_width=True,
+
                                 hide_index=True,
                                 column_config={
                                     "Element": st.column_config.TextColumn(width="medium"),
@@ -3544,7 +3542,7 @@ if __name__ == "__main__":
 
             st.markdown("---")
             st.subheader("Data Preview")
-            st.dataframe(df_nn_filtered.head(20), use_container_width=True)
+            st.dataframe(df_nn_filtered.head(20), )
 
             st.subheader("Export Options")
 
