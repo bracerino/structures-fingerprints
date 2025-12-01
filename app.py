@@ -3187,17 +3187,35 @@ if __name__ == "__main__":
                                     row=row, col=col
                                 )
 
-                        fig.update_xaxes(title_text="Distance (Å)", row=row, col=col, title_font=dict(size=14))
+                        # fig.update_xaxes(title_text="Distance (Å)", row=row, col=col, title_font=dict(size=14))
+                        fig.update_xaxes(
+                        title_text="Distance (Å)", 
+                        row=row, 
+                        col=col, 
+                        title_font=dict(size=20, color='black'),  
+                        tickfont=dict(size=18, color='black')  
+                        )
+                        #y_label = "Energy (eV)" if y_axis_mode == "Energy (eV)" else "Intensity (# pairs)"
                         y_label = "Energy (eV)" if y_axis_mode == "Energy (eV)" else "Intensity (# pairs)"
+                        fig.update_yaxes(
+                            title_text=y_label, 
+                            row=row, 
+                            col=col, 
+                            title_font=dict(size=20, color='black'), 
+                            tickfont=dict(size=18, color='black')  
+                        )
+                               
                         fig.update_yaxes(title_text=y_label, row=row, col=col, title_font=dict(size=14))
 
                     neighbor_order_text = f"{selected_neighbor_order}{'st' if selected_neighbor_order == 1 else 'nd'} Nearest Neighbor"
                     fig.update_layout(
-                        height=400 * n_rows,
-                        title_text=f"{neighbor_order_text} Analysis - Reference: {reference_elem}",
-                        title_font_size=20,
-                        showlegend=color_by_cluster,
-                        plot_bgcolor='white'
+                    height=400 * n_rows,
+                    title_text=f"{neighbor_order_text} Analysis - Reference: {reference_elem}",
+                    title_font_size=26, 
+                    title_font_color='black',
+                    showlegend=color_by_cluster,
+                    plot_bgcolor='white',
+                    font=dict(size=18, color='black')  
                     )
 
                     st.plotly_chart(fig, )
