@@ -3205,7 +3205,7 @@ if __name__ == "__main__":
                             tickfont=dict(size=18, color='black')  
                         )
                                
-                        fig.update_yaxes(title_text=y_label, row=row, col=col, title_font=dict(size=14))
+                        #fig.update_yaxes(title_text=y_label, row=row, col=col, title_font=dict(size=14))
 
                     neighbor_order_text = f"{selected_neighbor_order}{'st' if selected_neighbor_order == 1 else 'nd'} Nearest Neighbor"
                     fig.update_layout(
