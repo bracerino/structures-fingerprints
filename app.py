@@ -2965,8 +2965,8 @@ if __name__ == "__main__":
                         rows=n_rows,
                         cols=n_cols,
                         subplot_titles=selected_pairs,
-                        vertical_spacing=0.15,
-                        horizontal_spacing=0.08
+                        vertical_spacing=0.18,
+                        horizontal_spacing=0.12
                     )
 
                     for idx, pair in enumerate(selected_pairs):
