@@ -2949,7 +2949,7 @@ if __name__ == "__main__":
             with viz_col1:
                 if selected_pairs:
                     n_pairs = len(selected_pairs)
-                    n_cols = min(3, n_pairs)
+                    n_cols = min(2, n_pairs)
                     n_rows = int(np.ceil(n_pairs / n_cols))
 
                     from plotly.subplots import make_subplots
