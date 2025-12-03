@@ -2970,7 +2970,7 @@ if __name__ == "__main__":
                     )
                             
                     for annotation in fig['layout']['annotations']:
-                        annotation['font'] = dict(size=24, color='black', family='Arial') 
+                        annotation['font'] = dict(size=20, color='black', family='Arial') 
                                         
                     for idx, pair in enumerate(selected_pairs):
                         row = idx // n_cols + 1
