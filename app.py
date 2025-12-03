@@ -2968,7 +2968,10 @@ if __name__ == "__main__":
                         vertical_spacing=0.18,
                         horizontal_spacing=0.12
                     )
-
+                            
+                    for annotation in fig['layout']['annotations']:
+                        annotation['font'] = dict(size=24, color='black', family='Arial') 
+                                        
                     for idx, pair in enumerate(selected_pairs):
                         row = idx // n_cols + 1
                         col = idx % n_cols + 1
